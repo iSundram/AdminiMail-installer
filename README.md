@@ -33,7 +33,7 @@
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/iSundram/AdminiMail-installer/main/install.sh | sudo bash
-
+```
 After ~2 minutes you’ll see:
 
 🎉  AdminiMail installation complete!
