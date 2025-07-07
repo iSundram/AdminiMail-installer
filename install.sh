@@ -1,132 +1,93 @@
-#!/usr/bin/env bash
-###############################################################################
-#  AdminiMail One-Click Installer
-#  Author : iSundram
-#  URL    : https://github.com/iSundram/AdminiMail-installer
-#  License: MIT
-###############################################################################
+#!/bin/bash
+
+#──────────────────────────────────────────────
+# 📬 AdminiMail – Automated Installer Script
+# Copyright (c) 2025 iSundram
+# Licensed under the MIT License
+#──────────────────────────────────────────────
+
 set -euo pipefail
-IFS=$'\n\t'
 
-#---------------------------  Configuration  ----------------------------------
-APP_REPO="https://github.com/Mail-0/Zero" # your code repo
-APP_DIR="$HOME/Zero"                        # target directory
-DB_NAME="zerodotmail"
-NODE_VERSION="lts/*"                              # Node 20 LTS
-FRONT_PORT=3000
-WORKER_PORT=8787
-#-----------------------------------------------------------------------------#
+# ASCII Art Logo
+cat << "EOF"
 
-#-- COLORS --------------------------------------------------------------------
-C_RESET="\e[0m"; C_BOLD="\e[1m"; C_GREEN="\e[32m"; C_YELLOW="\e[33m"; C_RED="\e[31m"
-print()  { printf "${C_GREEN}${1}${C_RESET}\n"; }
-warn()   { printf "${C_YELLOW}⚠️  %s${C_RESET}\n" "$1"; }
-die()    { printf "${C_RED}✖ %s${C_RESET}\n" "$1"; exit 1; }
+██████╗  █████╗ ██████╗ ███╗   ███╗██╗███╗   ███╗ █████╗ ██╗██╗     
+██╔══██╗██╔══██╗██╔══██╗████╗ ████║██║████╗ ████║██╔══██╗██║██║     
+██████╔╝███████║██████╔╝██╔████╔██║██║██╔████╔██║███████║██║██║     
+██╔═══╝ ██╔══██║██╔═══╝ ██║╚██╔╝██║██║██║╚██╔╝██║██╔══██║██║██║     
+██║     ██║  ██║██║     ██║ ╚═╝ ██║██║██║ ╚═╝ ██║██║  ██║██║███████╗
+╚═╝     ╚═╝  ╚═╝╚═╝     ╚═╝     ╚═╝╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝╚══════╝
+                                                                    
+EOF
 
-#-- ROOT CHECK ----------------------------------------------------------------
-[[ $EUID -ne 0 ]] && die "Run as root (sudo)."
+echo "📦 Starting AdminiMail installation..."
+sleep 2
 
-#-- PROMPTS -------------------------------------------------------------------
-read -rp "📧  Enter a strong Postgres password: " PG_PASS
-read -rp "🌿  Git branch to deploy [main]: " GIT_BRANCH
-GIT_BRANCH=${GIT_BRANCH:-main}
+# Ask for Postgres password
+read -s -p "🔐 Enter Postgres password to use: " DB_PASSWORD
+echo
 
-echo -e "${C_BOLD}\n🔧  Installing system dependencies…${C_RESET}"
-apt update -y
-apt install -y curl git build-essential postgresql postgresql-contrib redis-server ufw
+# Prepare environment
+echo "🔧 Updating packages and installing system tools..."
+apt update -y && apt install -y curl git build-essential libpq-dev postgresql postgresql-contrib redis-server
 
-#-- NVM + NODE ----------------------------------------------------------------
-if ! command -v nvm &>/dev/null; then
-  print "⬇️  Installing NVM…"
-  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-fi
-# shellcheck disable=SC1091
-source "$HOME/.nvm/nvm.sh"
-nvm install "$NODE_VERSION" && nvm alias default "$NODE_VERSION"
-print "✅  Node $(node -v) / npm $(npm -v)"
-
-#-- PNPM ----------------------------------------------------------------------
-if ! command -v pnpm &>/dev/null; then
-  print "⬇️  Installing pnpm…"
-  npm install -g pnpm@latest
-fi
-print "✅  pnpm $(pnpm -v)"
-
-#-- POSTGRES + REDIS -----------------------------------------------------------
-sudo -u postgres psql -tc "ALTER USER postgres WITH PASSWORD '$PG_PASS';"
-sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME';" | grep -q 1 \
-  || sudo -u postgres createdb "$DB_NAME"
-systemctl enable --now redis-server
-
-#-- CLONE / UPDATE APP ---------------------------------------------------------
-if [[ -d $APP_DIR/.git ]]; then
-  print "🔄  Repo exists – pulling latest $GIT_BRANCH…"
-  git -C "$APP_DIR" fetch origin "$GIT_BRANCH"
-  git -C "$APP_DIR" checkout "$GIT_BRANCH"
-  git -C "$APP_DIR" pull
-else
-  print "⬇️  Cloning AdminiMail source…"
-  git clone --branch "$GIT_BRANCH" "$APP_REPO" "$APP_DIR"
+# Install Node.js v20 LTS using NVM
+if ! command -v nvm &> /dev/null; then
+  echo "⬇️ Installing Node.js v20 with NVM..."
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash
+  export NVM_DIR="$HOME/.nvm"
+  source "$NVM_DIR/nvm.sh"
 fi
 
-#-- ENV FILE -------------------------------------------------------------------
-print "🔑  Generating .env…"
-cp -n "$APP_DIR/.env.example" "$APP_DIR/.env"
-sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://postgres:${PG_PASS}@localhost:5432/${DB_NAME}|" "$APP_DIR/.env"
-sed -i "s|^REDIS_URL=.*|REDIS_URL=redis://localhost:6379|" "$APP_DIR/.env"
-sed -i "s|^NEXTAUTH_SECRET=.*|NEXTAUTH_SECRET=$(openssl rand -hex 32)|" "$APP_DIR/.env"
-sed -i "s|^NEXTAUTH_URL=.*|NEXTAUTH_URL=http://localhost:${FRONT_PORT}|" "$APP_DIR/.env"
-# ensure frontend/backend URLs
-grep -q '^VITE_PUBLIC_APP_URL=' "$APP_DIR/.env" \
-  || echo "VITE_PUBLIC_APP_URL=http://localhost:${FRONT_PORT}" >> "$APP_DIR/.env"
-grep -q '^VITE_PUBLIC_BACKEND_URL=' "$APP_DIR/.env" \
-  || echo "VITE_PUBLIC_BACKEND_URL=http://localhost:${WORKER_PORT}" >> "$APP_DIR/.env"
+nvm install 20
+nvm use 20
+nvm alias default 20
 
-#-- INSTALL & BUILD ------------------------------------------------------------
-cd "$APP_DIR"
-print "📦  Installing dependencies (this may take a while)…"
-pnpm install --silent
+# Install pnpm globally
+echo "⬇️ Installing pnpm..."
+npm install -g pnpm
 
-print "🗄️  Applying database schema…"
-pnpm db:push --silent
+# Create adminimail user DB
+echo "🗃 Setting up PostgreSQL user and database..."
+sudo -u postgres psql <<EOF
+CREATE USER postgres WITH PASSWORD '${DB_PASSWORD}' SUPERUSER;
+CREATE DATABASE zerodotemail;
+GRANT ALL PRIVILEGES ON DATABASE zerodotemail TO postgres;
+EOF
 
-print "🔧  Building production bundle…"
-pnpm build --silent
+# Clone AdminiMail (Zero) repository
+echo "📁 Cloning AdminiMail repository..."
+git clone https://github.com/Mail-0/Zero.git ~/AdminiMail
+cd ~/AdminiMail
 
-#-- PM2 LAUNCH -----------------------------------------------------------------
-npm install -g pm2 &>/dev/null
+# Install dependencies
+echo "📦 Installing dependencies..."
+pnpm install
+
+# Create .env from example
+cp .env.example .env
+
+# Update .env with DB and secrets
+echo "🔐 Configuring .env..."
+sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@localhost:5432/zerodotemail|" .env
+sed -i "s|^BETTER_AUTH_SECRET=.*|BETTER_AUTH_SECRET=$(openssl rand -hex 32)|" .env
+sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 32)|" .env
+
+# Setup DB schema
+echo "🧱 Initializing database schema..."
+pnpm db:push
+
+# Build and start with PM2
+echo "🚀 Starting AdminiMail with PM2..."
+pnpm build
+npm install -g pm2
 pm2 start "pnpm start" --name adminimail
 pm2 save
-pm2 startup -u "$SUDO_USER" --silent
 
-#-- FIREWALL (optional) --------------------------------------------------------
-read -rp "🛡  Open UFW ports ${FRONT_PORT} and ${WORKER_PORT}? [y/N]: " OPEN_FW
-if [[ $OPEN_FW =~ ^[Yy]$ ]]; then
-  ufw allow "$FRONT_PORT"
-  ufw allow "$WORKER_PORT"
-  ufw enable
-fi
-
-#-- FOOTER ---------------------------------------------------------------------
-cat <<EOF
-
-${C_BOLD}${C_GREEN}🎉  AdminiMail installation complete!${C_RESET}
-
-• Front-end:  http://<your-server-ip>:${FRONT_PORT}
-• Worker:     http://<your-server-ip>:${WORKER_PORT}
-
-PM2 commands:
-  pm2 status              # view
-  pm2 logs adminimail     # live logs
-  pm2 restart adminimail  # restart service
-
-To remove AdminiMail:
-  pm2 delete adminimail && rm -rf "${APP_DIR}"
-
-${C_BOLD}Next steps:${C_RESET}
-1. Point a domain (e.g., mail.admini.tech) at your server IP.
-2. Add HTTPS via Nginx + Certbot or Cloudflare Tunnel.
-3. Customize branding inside ${APP_DIR}/apps/web.
-
-Thank you for using AdminiMail-installer!
-EOF
+echo
+echo "🎉 AdminiMail installation complete!"
+echo
+echo "• Front-end:  http://<your-ip>:3000"
+echo "• Worker:     http://<your-ip>:8787"
+echo
+echo "🛠 You can view logs using: pm2 logs adminimail"
