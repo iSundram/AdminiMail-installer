@@ -9,9 +9,9 @@ set -euo pipefail
 IFS=$'\n\t'
 
 #---------------------------  Configuration  ----------------------------------
-APP_REPO="https://github.com/iSundram/AdminiMail" # your code repo
-APP_DIR="$HOME/AdminiMail"                        # target directory
-DB_NAME="adminimail"
+APP_REPO="https://github.com/Mail-0/Zero" # your code repo
+APP_DIR="$HOME/Zero"                        # target directory
+DB_NAME="zerodotmail"
 NODE_VERSION="lts/*"                              # Node 20 LTS
 FRONT_PORT=3000
 WORKER_PORT=8787
